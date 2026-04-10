@@ -119,7 +119,7 @@ public class FF1 {
     private func computeB(v: Int) -> Int {
         let pow = radix.power(v) - 1
         if pow == 0 { return 1 }
-        let bitLen = pow.bitWidth
+        let bitLen = BigUInt(pow).bitWidth
         return (bitLen + 7) / 8
     }
 

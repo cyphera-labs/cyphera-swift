@@ -1,5 +1,11 @@
 import Foundation
 
+#if canImport(CommonCrypto)
+import CommonCrypto
+#else
+import CryptoSwift
+#endif
+
 public class Cyphera {
     private var policies: [String: PolicyConfig] = [:]
     private var tagIndex: [String: String] = [:]
@@ -168,7 +174,71 @@ public class Cyphera {
     // MARK: - Hash
 
     private func protectHash(_ value: String, policy: PolicyConfig) throws -> String {
-        throw CypheraError.configError("Hash engine not yet implemented in Swift SDK")
+        let algo = policy.algorithm.replacingOccurrences(of: "-", with: "").lowercased()
+        let data = Data(value.utf8)
+
+        if let keyRef = policy.keyRef, let key = keys[keyRef] {
+            return try hmacHash(data: data, key: key, algorithm: algo)
+        }
+        return try plainHash(data: data, algorithm: algo)
+    }
+
+    private func plainHash(data: Data, algorithm: String) throws -> String {
+        #if canImport(CommonCrypto)
+        switch algorithm {
+        case "sha256":
+            var hash = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+            data.withUnsafeBytes { CC_SHA256($0.baseAddress, CC_LONG(data.count), &hash) }
+            return Data(hash).hexString
+        case "sha384":
+            var hash = [UInt8](repeating: 0, count: Int(CC_SHA384_DIGEST_LENGTH))
+            data.withUnsafeBytes { CC_SHA384($0.baseAddress, CC_LONG(data.count), &hash) }
+            return Data(hash).hexString
+        case "sha512":
+            var hash = [UInt8](repeating: 0, count: Int(CC_SHA512_DIGEST_LENGTH))
+            data.withUnsafeBytes { CC_SHA512($0.baseAddress, CC_LONG(data.count), &hash) }
+            return Data(hash).hexString
+        default:
+            throw CypheraError.configError("Unsupported hash algorithm: \(algorithm)")
+        }
+        #else
+        switch algorithm {
+        case "sha256": return Data(CryptoSwift.Digest.sha256(Array(data))).hexString
+        case "sha384": return Data(CryptoSwift.Digest.sha384(Array(data))).hexString
+        case "sha512": return Data(CryptoSwift.Digest.sha512(Array(data))).hexString
+        default: throw CypheraError.configError("Unsupported hash algorithm: \(algorithm)")
+        }
+        #endif
+    }
+
+    private func hmacHash(data: Data, key: Data, algorithm: String) throws -> String {
+        #if canImport(CommonCrypto)
+        let ccAlgo: CCHmacAlgorithm
+        let digestLen: Int
+        switch algorithm {
+        case "sha256": ccAlgo = CCHmacAlgorithm(kCCHmacAlgSHA256); digestLen = Int(CC_SHA256_DIGEST_LENGTH)
+        case "sha384": ccAlgo = CCHmacAlgorithm(kCCHmacAlgSHA384); digestLen = Int(CC_SHA384_DIGEST_LENGTH)
+        case "sha512": ccAlgo = CCHmacAlgorithm(kCCHmacAlgSHA512); digestLen = Int(CC_SHA512_DIGEST_LENGTH)
+        default: throw CypheraError.configError("Unsupported hash algorithm: \(algorithm)")
+        }
+        var hash = [UInt8](repeating: 0, count: digestLen)
+        data.withUnsafeBytes { dataPtr in
+            key.withUnsafeBytes { keyPtr in
+                CCHmac(ccAlgo, keyPtr.baseAddress, key.count, dataPtr.baseAddress, data.count, &hash)
+            }
+        }
+        return Data(hash).hexString
+        #else
+        let variant: CryptoSwift.HMAC.Variant
+        switch algorithm {
+        case "sha256": variant = .sha2(.sha256)
+        case "sha384": variant = .sha2(.sha384)
+        case "sha512": variant = .sha2(.sha512)
+        default: throw CypheraError.configError("Unsupported hash algorithm: \(algorithm)")
+        }
+        let hmac = try CryptoSwift.HMAC(key: Array(key), variant: variant).authenticate(Array(data))
+        return Data(hmac).hexString
+        #endif
     }
 
     // MARK: - Helpers
