@@ -15,15 +15,19 @@ public class Cyphera {
         // Load keys
         if let keysDict = config["keys"] as? [String: Any] {
             for (name, val) in keysDict {
-                let material: String
                 if let s = val as? String {
-                    material = s
-                } else if let d = val as? [String: Any], let m = d["material"] as? String {
-                    material = m
+                    keys[name] = Data(hexString: s)
+                } else if let d = val as? [String: Any] {
+                    if let m = d["material"] as? String {
+                        keys[name] = Data(hexString: m)
+                    } else if let source = d["source"] as? String {
+                        keys[name] = try resolveKeySource(name: name, source: source, config: d)
+                    } else {
+                        throw CypheraError.configError("Key '\(name)' must have either 'material' or 'source'")
+                    }
                 } else {
                     throw CypheraError.configError("Invalid key format for '\(name)'")
                 }
-                keys[name] = Data(hexString: material)
             }
         }
 
@@ -288,6 +292,54 @@ public class Cyphera {
         }
         return String(result)
     }
+}
+
+// MARK: - Key Source Resolution
+
+private let cloudSources: Set<String> = ["aws-kms", "gcp-kms", "azure-kv", "vault"]
+
+private func resolveKeySource(name: String, source: String, config: [String: Any]) throws -> Data {
+    if source == "env" {
+        guard let varName = config["var"] as? String else {
+            throw CypheraError.configError("Key '\(name)': source 'env' requires 'var' field")
+        }
+        guard let val = ProcessInfo.processInfo.environment[varName] else {
+            throw CypheraError.configError("Key '\(name)': environment variable '\(varName)' is not set")
+        }
+        let encoding = config["encoding"] as? String ?? "hex"
+        if encoding == "base64" {
+            guard let data = Data(base64Encoded: val) else {
+                throw CypheraError.configError("Key '\(name)': invalid base64 in env var '\(varName)'")
+            }
+            return data
+        }
+        return Data(hexString: val)
+    }
+
+    if source == "file" {
+        guard let path = config["path"] as? String else {
+            throw CypheraError.configError("Key '\(name)': source 'file' requires 'path' field")
+        }
+        let raw = try String(contentsOfFile: path, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
+        let encoding = config["encoding"] as? String
+            ?? (path.hasSuffix(".b64") || path.hasSuffix(".base64") ? "base64" : "hex")
+        if encoding == "base64" {
+            guard let data = Data(base64Encoded: raw) else {
+                throw CypheraError.configError("Key '\(name)': invalid base64 in file '\(path)'")
+            }
+            return data
+        }
+        return Data(hexString: raw)
+    }
+
+    if cloudSources.contains(source) {
+        throw CypheraError.configError(
+            "Key '\(name)' requires source '\(source)' but cyphera-keychain is not available.\n" +
+            "Add dependency: cyphera-keychain"
+        )
+    }
+
+    throw CypheraError.configError("Key '\(name)': unknown source '\(source)'. Valid: env, file, \(cloudSources.sorted().joined(separator: ", "))")
 }
 
 // MARK: - Factory Methods
