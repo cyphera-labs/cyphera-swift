@@ -80,7 +80,7 @@ public class Cyphera {
     public func access(_ protectedValue: String, policy policyName: String? = nil) throws -> String {
         if let policyName = policyName {
             let policy = try getPolicy(policyName)
-            return try accessFpe(protectedValue, policy: policy)
+            return try accessFpe(protectedValue, policy: policy, explicitPolicy: true)
         }
 
         // Tag-based lookup — check longest tags first
@@ -125,7 +125,7 @@ public class Cyphera {
 
     // MARK: - FPE access
 
-    private func accessFpe(_ protectedValue: String, policy: PolicyConfig) throws -> String {
+    private func accessFpe(_ protectedValue: String, policy: PolicyConfig, explicitPolicy: Bool = false) throws -> String {
         guard ["ff1", "ff3"].contains(policy.engine) else {
             throw CypheraError.notReversible("Cannot reverse '\(policy.engine)'")
         }
@@ -134,7 +134,7 @@ public class Cyphera {
         let alphabet = policy.alphabet
 
         var withoutTag = protectedValue
-        if policy.tagEnabled, let tag = policy.tag {
+        if !explicitPolicy && policy.tagEnabled, let tag = policy.tag {
             withoutTag = String(protectedValue.dropFirst(tag.count))
         }
 
