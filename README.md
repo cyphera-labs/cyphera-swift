@@ -1,6 +1,7 @@
 # cyphera-swift
 
 [![CI](https://github.com/cyphera-labs/cyphera-swift/actions/workflows/ci.yml/badge.svg)](https://github.com/cyphera-labs/cyphera-swift/actions/workflows/ci.yml)
+[![Security](https://github.com/cyphera-labs/cyphera-swift/actions/workflows/codeql.yml/badge.svg)](https://github.com/cyphera-labs/cyphera-swift/actions/workflows/codeql.yml)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fcyphera-labs%2Fcyphera-swift%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/cyphera-labs/cyphera-swift)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2Fcyphera-labs%2Fcyphera-swift%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/cyphera-labs/cyphera-swift)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
