@@ -24,6 +24,8 @@ struct AESHelper {
         let status = CCCrypt(
             CCOperation(kCCEncrypt),
             CCAlgorithm(kCCAlgorithmAES),
+            // NIST SP 800-38G requires AES-ECB as the PRF for FF1/FF3 Feistel rounds.
+            // This is single-block encryption used as a building block, not ECB mode applied to user data.
             CCOptions(kCCOptionECBMode),
             key, key.count,
             nil,
@@ -36,6 +38,8 @@ struct AESHelper {
         }
         return Data(outBytes)
         #else
+        // NIST SP 800-38G requires AES-ECB as the PRF for FF1/FF3 Feistel rounds.
+        // This is single-block encryption used as a building block, not ECB mode applied to user data.
         let aes = try CryptoSwift.AES(key: key, blockMode: ECB(), padding: .noPadding)
         let encrypted = try aes.encrypt(Array(data))
         return Data(encrypted)
