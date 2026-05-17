@@ -77,10 +77,23 @@ public class Cyphera {
         }
     }
 
+    /// Reverse a protected value.
+    ///
+    /// - If `configuration` is `nil`: header-based lookup. The protected
+    ///   value's prefix identifies the configuration; the header is stripped
+    ///   and the remainder decrypted.
+    /// - If `configuration` is non-nil: the named configuration **must** have
+    ///   `header_enabled = false`. The input is treated as raw headerless
+    ///   ciphertext. Calling this form on a headered configuration throws
+    ///   `CypheraError.explicitAccessOnHeaderedConfiguration` — for those,
+    ///   use `access(value)` so the header identifies the configuration.
     public func access(_ protectedValue: String, configuration configurationName: String? = nil) throws -> String {
         if let configurationName = configurationName {
             let configuration = try getConfiguration(configurationName)
-            return try accessFpe(protectedValue, configuration: configuration, explicitConfiguration: true)
+            if configuration.headerEnabled {
+                throw CypheraError.explicitAccessOnHeaderedConfiguration(configurationName)
+            }
+            return try accessFpe(protectedValue, configuration: configuration)
         }
 
         // Header-based lookup — check longest headers first
@@ -88,7 +101,8 @@ public class Cyphera {
         for header in headers {
             if protectedValue.hasPrefix(header) {
                 let configuration = try getConfiguration(headerIndex[header]!)
-                return try accessFpe(protectedValue, configuration: configuration)
+                let stripped = String(protectedValue.dropFirst(header.count))
+                return try accessFpe(stripped, configuration: configuration)
             }
         }
 
@@ -129,7 +143,12 @@ public class Cyphera {
 
     // MARK: - FPE access
 
-    private func accessFpe(_ protectedValue: String, configuration: Configuration, explicitConfiguration: Bool = false) throws -> String {
+    /// Internal: reverse a protected value assuming `protectedValue` is
+    /// already header-stripped (raw headerless ciphertext). Callers are
+    /// responsible for stripping any DPH before invoking — `access(_:)`
+    /// strips it on the header-based path, and `access(_:configuration:)`
+    /// only allows `header_enabled = false` configurations through.
+    private func accessFpe(_ protectedValue: String, configuration: Configuration) throws -> String {
         guard ["ff1", "ff3"].contains(configuration.engine) else {
             throw CypheraError.notReversible("Cannot reverse '\(configuration.engine)'")
         }
@@ -137,12 +156,7 @@ public class Cyphera {
         let key = try resolveKey(configuration.keyRef)
         let alphabet = configuration.alphabet
 
-        var withoutHeader = protectedValue
-        if !explicitConfiguration && configuration.headerEnabled, let header = configuration.header {
-            withoutHeader = String(protectedValue.dropFirst(header.count))
-        }
-
-        let (encryptable, positions, chars) = extractPassthroughs(withoutHeader, alphabet: alphabet)
+        let (encryptable, positions, chars) = extractPassthroughs(protectedValue, alphabet: alphabet)
 
         let decrypted: String
         if configuration.engine == "ff3" {

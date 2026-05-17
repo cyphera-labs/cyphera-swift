@@ -137,4 +137,19 @@ final class CypheraTests: XCTestCase {
         let masked = try c.protect("hello", configuration: "m")
         XCTAssertThrowsError(try c.access(masked))
     }
+
+    // 2-arg access(value, configuration:) on a header_enabled=true configuration
+    // must error — the two-arg form is for header_enabled=false only. For
+    // headered configs, the header itself identifies the configuration.
+    func testExplicitAccessOnHeaderedConfigurationErrors() throws {
+        let c = try Cyphera(config: makeConfig())
+        let protected = try c.protect("123-45-6789", configuration: "ssn")
+        XCTAssertThrowsError(try c.access(protected, configuration: "ssn")) { error in
+            guard case CypheraError.explicitAccessOnHeaderedConfiguration(let name) = error else {
+                XCTFail("Expected explicitAccessOnHeaderedConfiguration, got \(error)")
+                return
+            }
+            XCTAssertEqual(name, "ssn")
+        }
+    }
 }

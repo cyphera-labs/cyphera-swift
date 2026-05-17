@@ -13,6 +13,7 @@ public enum CypheraError: Error, LocalizedError {
     case noMatchingHeader(String)
     case headerCollision(String)
     case configError(String)
+    case explicitAccessOnHeaderedConfiguration(String)
 
     public var errorDescription: String? {
         switch self {
@@ -28,6 +29,8 @@ public enum CypheraError: Error, LocalizedError {
         case .noMatchingHeader(let msg): return "No matching header: \(msg)"
         case .headerCollision(let msg): return "Header collision: \(msg)"
         case .configError(let msg): return "Config error: \(msg)"
+        case .explicitAccessOnHeaderedConfiguration(let name):
+            return "configuration '\(name)' has header_enabled=true; use access(value) — the header identifies the configuration. The two-arg form is for header_enabled=false configurations only."
         }
     }
 }
