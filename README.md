@@ -9,7 +9,7 @@
 Data protection SDK for Swift — format-preserving encryption (FF1/FF3), data masking, and hashing.
 
 ```swift
-.package(url: "https://github.com/cyphera-labs/cyphera-swift.git", from: "0.0.1-alpha.1")
+.package(url: "https://github.com/cyphera-labs/cyphera-swift.git", from: "0.0.2-alpha.1")
 ```
 
 ## Usage
@@ -17,14 +17,14 @@ Data protection SDK for Swift — format-preserving encryption (FF1/FF3), data m
 ```swift
 import Cyphera
 
-// Load policy from file
+// Load configuration from file
 let cyphera = try Cyphera.load()
 
-// Protect data — policy decides the engine
-let protected = try cyphera.protect("123-45-6789", policy: "ssn")
+// Protect data — the configuration decides the engine
+let protected = try cyphera.protect("123-45-6789", configuration: "ssn")
 // → "T01k7R-m2-9xPqR4n"
 
-// Access data — tag-based, no policy name needed
+// Access data — header-based, no configuration name needed
 let original = try cyphera.access(protected)
 // → "123-45-6789"
 ```
@@ -38,26 +38,26 @@ let original = try cyphera.access(protected)
 | mask   | No        | Simple pattern masking |
 | hash   | No        | SHA-256/384/512, HMAC (coming soon) |
 
-## Policy File (cyphera.json)
+## Configuration File (cyphera.json)
 
 ```json
 {
-  "policies": {
+  "configurations": {
     "ssn": {
       "engine": "ff1",
       "key_ref": "demo-key",
-      "tag": "T01"
+      "header": "T01"
     },
     "credit_card": {
       "engine": "ff1",
       "key_ref": "demo-key",
-      "tag": "T02"
+      "header": "T02"
     },
     "name": {
       "engine": "ff1",
       "alphabet": "alpha_lower",
       "key_ref": "demo-key",
-      "tag": "T03"
+      "header": "T03"
     }
   },
   "keys": {
@@ -68,9 +68,13 @@ let original = try cyphera.access(protected)
 }
 ```
 
+The `header` (Data Protection Header, DPH) is a short prefix prepended to
+protected output that identifies the configuration used. It lets
+`access()` reverse a value without the caller naming the configuration.
+
 ## Primitives
 
-For direct engine access without the policy layer:
+For direct engine access without the configuration layer:
 
 ```swift
 import Cyphera

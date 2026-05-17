@@ -7,8 +7,8 @@ import CryptoSwift
 #endif
 
 public class Cyphera {
-    private var policies: [String: PolicyConfig] = [:]
-    private var tagIndex: [String: String] = [:]
+    private var configurations: [String: Configuration] = [:]
+    private var headerIndex: [String: String] = [:]
     private var keys: [String: Data] = [:]
 
     public init(config: [String: Any]) throws {
@@ -31,75 +31,79 @@ public class Cyphera {
             }
         }
 
-        // Load policies + build tag index
-        if let policiesDict = config["policies"] as? [String: Any] {
-            for (name, val) in policiesDict {
-                guard let pol = val as? [String: Any] else {
-                    throw CypheraError.configError("Invalid policy format for '\(name)'")
+        // Load configurations + build header index
+        if let configurationsDict = config["configurations"] as? [String: Any] {
+            for (name, val) in configurationsDict {
+                guard let cfg = val as? [String: Any] else {
+                    throw CypheraError.configError("Invalid configuration format for '\(name)'")
                 }
-                let tagEnabled = (pol["tag_enabled"] as? Bool) ?? true
-                let tag = pol["tag"] as? String
+                let headerEnabled = (cfg["header_enabled"] as? Bool) ?? true
+                let header = cfg["header"] as? String
 
-                if tagEnabled && tag == nil {
-                    throw CypheraError.configError("Policy '\(name)' has tag_enabled=true but no tag")
+                if headerEnabled && header == nil {
+                    throw CypheraError.configError("Configuration '\(name)' has header_enabled=true but no header")
                 }
 
-                if tagEnabled, let tag = tag {
-                    if let existing = tagIndex[tag] {
-                        throw CypheraError.tagCollision("'\(tag)' used by both '\(existing)' and '\(name)'")
+                if headerEnabled, let header = header {
+                    if let existing = headerIndex[header] {
+                        throw CypheraError.headerCollision("'\(header)' used by both '\(existing)' and '\(name)'")
                     }
-                    tagIndex[tag] = name
+                    headerIndex[header] = name
                 }
 
-                policies[name] = PolicyConfig(
-                    engine: (pol["engine"] as? String) ?? "ff1",
-                    alphabet: resolveAlphabet(pol["alphabet"] as? String),
-                    keyRef: pol["key_ref"] as? String,
-                    tag: tag,
-                    tagEnabled: tagEnabled,
-                    tagLength: (pol["tag_length"] as? Int) ?? 3,
-                    pattern: pol["pattern"] as? String,
-                    algorithm: (pol["algorithm"] as? String) ?? "sha256"
+                configurations[name] = Configuration(
+                    engine: (cfg["engine"] as? String) ?? "ff1",
+                    alphabet: resolveAlphabet(cfg["alphabet"] as? String),
+                    keyRef: cfg["key_ref"] as? String,
+                    header: header,
+                    headerEnabled: headerEnabled,
+                    headerLength: (cfg["header_length"] as? Int) ?? 3,
+                    pattern: cfg["pattern"] as? String,
+                    algorithm: (cfg["algorithm"] as? String) ?? "sha256"
                 )
             }
         }
     }
 
-    public func protect(_ value: String, policy policyName: String) throws -> String {
-        let policy = try getPolicy(policyName)
+    public func protect(_ value: String, configuration configurationName: String) throws -> String {
+        let configuration = try getConfiguration(configurationName)
 
-        switch policy.engine {
-        case "ff1": return try protectFpe(value, policy: policy, isFF3: false)
-        case "ff3": return try protectFpe(value, policy: policy, isFF3: true)
-        case "mask": return try protectMask(value, policy: policy)
-        case "hash": return try protectHash(value, policy: policy)
-        default: throw CypheraError.configError("Unknown engine: \(policy.engine)")
+        switch configuration.engine {
+        case "ff1": return try protectFpe(value, configuration: configuration, isFF3: false)
+        case "ff3": return try protectFpe(value, configuration: configuration, isFF3: true)
+        case "mask": return try protectMask(value, configuration: configuration)
+        case "hash": return try protectHash(value, configuration: configuration)
+        default: throw CypheraError.configError("Unknown engine: \(configuration.engine)")
         }
     }
 
-    public func access(_ protectedValue: String, policy policyName: String? = nil) throws -> String {
-        if let policyName = policyName {
-            let policy = try getPolicy(policyName)
-            return try accessFpe(protectedValue, policy: policy, explicitPolicy: true)
+    public func access(_ protectedValue: String, configuration configurationName: String? = nil) throws -> String {
+        if let configurationName = configurationName {
+            let configuration = try getConfiguration(configurationName)
+            return try accessFpe(protectedValue, configuration: configuration, explicitConfiguration: true)
         }
 
-        // Tag-based lookup — check longest tags first
-        let tags = tagIndex.keys.sorted { $0.count > $1.count }
-        for tag in tags {
-            if protectedValue.hasPrefix(tag) {
-                let policy = try getPolicy(tagIndex[tag]!)
-                return try accessFpe(protectedValue, policy: policy)
+        // Header-based lookup — check longest headers first
+        let headers = headerIndex.keys.sorted { $0.count > $1.count }
+        for header in headers {
+            if protectedValue.hasPrefix(header) {
+                let configuration = try getConfiguration(headerIndex[header]!)
+                return try accessFpe(protectedValue, configuration: configuration)
             }
         }
 
-        throw CypheraError.noMatchingTag("No matching tag found. Use access(value, policy:) for untagged values.")
+        throw CypheraError.noMatchingHeader("No matching header found. Use access(value, configuration:) for headerless values.")
+    }
+
+    public func accessByHeader(_ protectedValue: String) throws -> String {
+        return try access(protectedValue)
     }
 
     // MARK: - FPE protect
 
-    private func protectFpe(_ value: String, policy: PolicyConfig, isFF3: Bool) throws -> String {
-        let key = try resolveKey(policy.keyRef)
-        let alphabet = policy.alphabet
+    private func protectFpe(_ value: String, configuration: Configuration, isFF3: Bool) throws -> String {
+        let key = try resolveKey(configuration.keyRef)
+        let alphabet = configuration.alphabet
 
         let (encryptable, positions, chars) = extractPassthroughs(value, alphabet: alphabet)
         guard !encryptable.isEmpty else {
@@ -117,31 +121,31 @@ public class Cyphera {
 
         let withPt = reinsertPassthroughs(encrypted, positions: positions, chars: chars)
 
-        if policy.tagEnabled, let tag = policy.tag {
-            return tag + withPt
+        if configuration.headerEnabled, let header = configuration.header {
+            return header + withPt
         }
         return withPt
     }
 
     // MARK: - FPE access
 
-    private func accessFpe(_ protectedValue: String, policy: PolicyConfig, explicitPolicy: Bool = false) throws -> String {
-        guard ["ff1", "ff3"].contains(policy.engine) else {
-            throw CypheraError.notReversible("Cannot reverse '\(policy.engine)'")
+    private func accessFpe(_ protectedValue: String, configuration: Configuration, explicitConfiguration: Bool = false) throws -> String {
+        guard ["ff1", "ff3"].contains(configuration.engine) else {
+            throw CypheraError.notReversible("Cannot reverse '\(configuration.engine)'")
         }
 
-        let key = try resolveKey(policy.keyRef)
-        let alphabet = policy.alphabet
+        let key = try resolveKey(configuration.keyRef)
+        let alphabet = configuration.alphabet
 
-        var withoutTag = protectedValue
-        if !explicitPolicy && policy.tagEnabled, let tag = policy.tag {
-            withoutTag = String(protectedValue.dropFirst(tag.count))
+        var withoutHeader = protectedValue
+        if !explicitConfiguration && configuration.headerEnabled, let header = configuration.header {
+            withoutHeader = String(protectedValue.dropFirst(header.count))
         }
 
-        let (encryptable, positions, chars) = extractPassthroughs(withoutTag, alphabet: alphabet)
+        let (encryptable, positions, chars) = extractPassthroughs(withoutHeader, alphabet: alphabet)
 
         let decrypted: String
-        if policy.engine == "ff3" {
+        if configuration.engine == "ff3" {
             let cipher = try FF3(key: key, tweak: Data(count: 8), alphabet: alphabet)
             decrypted = try cipher.decrypt(encryptable)
         } else {
@@ -154,9 +158,9 @@ public class Cyphera {
 
     // MARK: - Mask
 
-    private func protectMask(_ value: String, policy: PolicyConfig) throws -> String {
-        guard let pattern = policy.pattern else {
-            throw CypheraError.configError("Mask policy requires 'pattern'")
+    private func protectMask(_ value: String, configuration: Configuration) throws -> String {
+        guard let pattern = configuration.pattern else {
+            throw CypheraError.configError("Mask configuration requires 'pattern'")
         }
         let len = value.count
         let mask = "*"
@@ -177,11 +181,11 @@ public class Cyphera {
 
     // MARK: - Hash
 
-    private func protectHash(_ value: String, policy: PolicyConfig) throws -> String {
-        let algo = policy.algorithm.replacingOccurrences(of: "-", with: "").lowercased()
+    private func protectHash(_ value: String, configuration: Configuration) throws -> String {
+        let algo = configuration.algorithm.replacingOccurrences(of: "-", with: "").lowercased()
         let data = Data(value.utf8)
 
-        if let keyRef = policy.keyRef, let key = keys[keyRef] {
+        if let keyRef = configuration.keyRef, let key = keys[keyRef] {
             return try hmacHash(data: data, key: key, algorithm: algo)
         }
         return try plainHash(data: data, algorithm: algo)
@@ -247,16 +251,16 @@ public class Cyphera {
 
     // MARK: - Helpers
 
-    private func getPolicy(_ name: String) throws -> PolicyConfig {
-        guard let p = policies[name] else {
-            throw CypheraError.unknownPolicy(name)
+    private func getConfiguration(_ name: String) throws -> Configuration {
+        guard let c = configurations[name] else {
+            throw CypheraError.unknownConfiguration(name)
         }
-        return p
+        return c
     }
 
     private func resolveKey(_ keyRef: String?) throws -> Data {
         guard let keyRef = keyRef else {
-            throw CypheraError.configError("No key_ref in policy")
+            throw CypheraError.configError("No key_ref in configuration")
         }
         guard let key = keys[keyRef] else {
             throw CypheraError.unknownKey(keyRef)
@@ -354,8 +358,8 @@ extension Cyphera {
     }
 
     public static func load() throws -> Cyphera {
-        // 1. CYPHERA_POLICY_FILE env var
-        if let envPath = ProcessInfo.processInfo.environment["CYPHERA_POLICY_FILE"],
+        // 1. CYPHERA_CONFIG_FILE env var
+        if let envPath = ProcessInfo.processInfo.environment["CYPHERA_CONFIG_FILE"],
            FileManager.default.fileExists(atPath: envPath) {
             return try fromFile(envPath)
         }
@@ -373,20 +377,20 @@ extension Cyphera {
         }
 
         throw CypheraError.configError(
-            "No policy file found. Checked: CYPHERA_POLICY_FILE env, ./cyphera.json, /etc/cyphera/cyphera.json"
+            "No configuration file found. Checked: CYPHERA_CONFIG_FILE env, ./cyphera.json, /etc/cyphera/cyphera.json"
         )
     }
 }
 
 // MARK: - Internal Types
 
-struct PolicyConfig {
+struct Configuration {
     let engine: String
     let alphabet: String
     let keyRef: String?
-    let tag: String?
-    let tagEnabled: Bool
-    let tagLength: Int
+    let header: String?
+    let headerEnabled: Bool
+    let headerLength: Int
     let pattern: String?
     let algorithm: String
 }

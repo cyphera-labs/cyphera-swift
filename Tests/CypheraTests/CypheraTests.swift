@@ -8,28 +8,28 @@ final class CypheraTests: XCTestCase {
             "keys": [
                 "demo-key": ["material": "2B7E151628AED2A6ABF7158809CF4F3C"]
             ],
-            "policies": [
+            "configurations": [
                 "ssn": [
                     "engine": "ff1",
                     "key_ref": "demo-key",
-                    "tag": "T01"
+                    "header": "T01"
                 ],
                 "credit_card": [
                     "engine": "ff1",
                     "key_ref": "demo-key",
-                    "tag": "T02"
+                    "header": "T02"
                 ],
                 "name": [
                     "engine": "ff1",
                     "alphabet": "alpha_lower",
                     "key_ref": "demo-key",
-                    "tag": "T03"
+                    "header": "T03"
                 ],
-                "ssn_untagged": [
+                "ssn_headerless": [
                     "engine": "ff1",
                     "alphabet": "digits",
                     "key_ref": "demo-key",
-                    "tag_enabled": false
+                    "header_enabled": false
                 ]
             ]
         ]
@@ -39,25 +39,25 @@ final class CypheraTests: XCTestCase {
         let c = try Cyphera(config: makeConfig())
 
         let ssn = "123-45-6789"
-        let protected = try c.protect(ssn, policy: "ssn")
+        let protected = try c.protect(ssn, configuration: "ssn")
 
-        // Should start with tag
-        XCTAssert(protected.hasPrefix("T01"), "Protected value should start with tag T01, got: \(protected)")
+        // Should start with header
+        XCTAssert(protected.hasPrefix("T01"), "Protected value should start with header T01, got: \(protected)")
 
         // Should preserve dashes
         let dashCount = protected.filter { $0 == "-" }.count
         XCTAssertEqual(dashCount, 2, "Should preserve 2 dashes")
 
-        // Round-trip via tag-based access
+        // Round-trip via header-based access
         let recovered = try c.access(protected)
-        XCTAssertEqual(recovered, ssn, "Tag-based access should recover original")
+        XCTAssertEqual(recovered, ssn, "Header-based access should recover original")
     }
 
-    func testTagBasedAccess() throws {
+    func testHeaderBasedAccess() throws {
         let c = try Cyphera(config: makeConfig())
 
-        let p1 = try c.protect("123-45-6789", policy: "ssn")
-        let p2 = try c.protect("4111-1111-1111-1111", policy: "credit_card")
+        let p1 = try c.protect("123-45-6789", configuration: "ssn")
+        let p2 = try c.protect("4111-1111-1111-1111", configuration: "credit_card")
 
         XCTAssert(p1.hasPrefix("T01"))
         XCTAssert(p2.hasPrefix("T02"))
@@ -69,72 +69,72 @@ final class CypheraTests: XCTestCase {
         XCTAssertEqual(r2, "4111-1111-1111-1111")
     }
 
-    func testUntaggedRoundTrip() throws {
+    func testHeaderlessRoundTrip() throws {
         let c = try Cyphera(config: makeConfig())
 
         let ssn = "123456789"
-        let protected = try c.protect(ssn, policy: "ssn_untagged")
+        let protected = try c.protect(ssn, configuration: "ssn_headerless")
 
-        // No tag prefix
-        XCTAssertEqual(protected.count, 9, "Untagged digits should be same length")
+        // No header prefix
+        XCTAssertEqual(protected.count, 9, "Headerless digits should be same length")
 
-        // Must pass policy name for untagged access
-        let recovered = try c.access(protected, policy: "ssn_untagged")
+        // Must pass configuration name for headerless access
+        let recovered = try c.access(protected, configuration: "ssn_headerless")
         XCTAssertEqual(recovered, ssn)
     }
 
     func testDeterminism() throws {
         let c = try Cyphera(config: makeConfig())
 
-        let a = try c.protect("123-45-6789", policy: "ssn")
-        let b = try c.protect("123-45-6789", policy: "ssn")
+        let a = try c.protect("123-45-6789", configuration: "ssn")
+        let b = try c.protect("123-45-6789", configuration: "ssn")
 
         XCTAssertEqual(a, b, "FPE should be deterministic with same key/tweak")
     }
 
     func testMask() throws {
         var config = makeConfig()
-        var policies = config["policies"] as! [String: Any]
-        policies["ssn_mask"] = [
+        var configurations = config["configurations"] as! [String: Any]
+        configurations["ssn_mask"] = [
             "engine": "mask",
             "pattern": "last4",
-            "tag_enabled": false
+            "header_enabled": false
         ] as [String: Any]
-        config["policies"] = policies
+        config["configurations"] = configurations
 
         let c = try Cyphera(config: config)
-        let masked = try c.protect("123-45-6789", policy: "ssn_mask")
+        let masked = try c.protect("123-45-6789", configuration: "ssn_mask")
         XCTAssertEqual(masked, "*******6789")
     }
 
-    func testTagCollision() {
+    func testHeaderCollision() {
         let config: [String: Any] = [
             "keys": ["k": ["material": "2B7E151628AED2A6ABF7158809CF4F3C"]],
-            "policies": [
-                "a": ["engine": "ff1", "key_ref": "k", "tag": "T01"],
-                "b": ["engine": "ff1", "key_ref": "k", "tag": "T01"]
+            "configurations": [
+                "a": ["engine": "ff1", "key_ref": "k", "header": "T01"],
+                "b": ["engine": "ff1", "key_ref": "k", "header": "T01"]
             ]
         ]
         XCTAssertThrowsError(try Cyphera(config: config))
     }
 
-    func testNoMatchingTag() throws {
+    func testNoMatchingHeader() throws {
         let c = try Cyphera(config: makeConfig())
         XCTAssertThrowsError(try c.access("ZZZsomething"))
     }
 
     func testNonReversibleAccess() throws {
         var config = makeConfig()
-        var policies = config["policies"] as! [String: Any]
-        policies["m"] = [
+        var configurations = config["configurations"] as! [String: Any]
+        configurations["m"] = [
             "engine": "mask",
             "pattern": "full",
-            "tag": "M01"
+            "header": "M01"
         ] as [String: Any]
-        config["policies"] = policies
+        config["configurations"] = configurations
 
         let c = try Cyphera(config: config)
-        let masked = try c.protect("hello", policy: "m")
+        let masked = try c.protect("hello", configuration: "m")
         XCTAssertThrowsError(try c.access(masked))
     }
 }
